@@ -1,4 +1,14 @@
-
 streamlit
 pandas
+requests
+beautifulsoup4
 google-generativeai
+transformers
+torch
+sentencepiece
+accelerate
+plotly
+pymongo[srv]
+bcrypt
+streamlit-option-menu
+python-dotenv
