@@ -11,6 +11,12 @@ from typing import List, Dict
 import pymongo
 import bcrypt
 from streamlit_option_menu import option_menu
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import random
+import datetime
+from datetime import timedelta
 
 # --- Page and App Configuration ---
 st.set_page_config(page_title="Lead Intelligence Engine", layout="wide")
@@ -21,13 +27,147 @@ try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     MONGO_URI = st.secrets["MONGO_URI"]
     HASH_SECRET_KEY = st.secrets["HASH_SECRET_KEY"].encode('utf-8') # Encode secret key for bcrypt
+    
+    # Email configuration
+    SMTP_SERVER = st.secrets["SMTP_SERVER"]  # e.g., "smtp.gmail.com"
+    SMTP_PORT = st.secrets["SMTP_PORT"]      # e.g., 587
+    EMAIL_USER = st.secrets["EMAIL_USER"]    # Your email address
+    EMAIL_PASSWORD = st.secrets["EMAIL_PASSWORD"]  # Your email app password
+    
     genai.configure(api_key=GEMINI_API_KEY)
-except (FileNotFoundError, KeyError):
+except (FileNotFoundError, KeyError) as e:
     st.error("🚨 Critical Error: API keys or secrets are missing. Please configure your .streamlit/secrets.toml file.")
+    st.error(f"Missing configuration: {e}")
     st.stop()
 
 
-# --- Database Management Class ---
+# --- Email Service Class ---
+class EmailService:
+    """Handles email sending functionality for OTP verification."""
+    
+    def __init__(self, smtp_server: str, smtp_port: int, email_user: str, email_password: str):
+        self.smtp_server = smtp_server
+        self.smtp_port = smtp_port
+        self.email_user = email_user
+        self.email_password = email_password
+    
+    def generate_otp(self) -> str:
+        """Generate a 6-digit OTP."""
+        return str(random.randint(100000, 999999))
+    
+    def send_otp_email(self, recipient_email: str, otp: str, username: str) -> bool:
+        """Send OTP verification email to the user."""
+        try:
+            # Create message
+            msg = MIMEMultipart()
+            msg['From'] = self.email_user
+            msg['To'] = recipient_email
+            msg['Subject'] = "Lead Intelligence Engine - Email Verification"
+            
+            # Email body
+            body = f"""
+            <html>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+                        <h2 style="color: #2E86AB; text-align: center;">🤖 Lead Intelligence Engine</h2>
+                        <h3 style="color: #333;">Email Verification Required</h3>
+                        
+                        <p>Hello <strong>{username}</strong>,</p>
+                        
+                        <p>Thank you for signing up for Lead Intelligence Engine! To complete your registration, please verify your email address using the OTP below:</p>
+                        
+                        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; text-align: center; margin: 20px 0;">
+                            <h2 style="color: #2E86AB; font-size: 32px; letter-spacing: 5px; margin: 0;">{otp}</h2>
+                        </div>
+                        
+                        <p><strong>Important:</strong> This OTP will expire in 10 minutes for security reasons.</p>
+                        
+                        <p>If you didn't create an account with us, please ignore this email.</p>
+                        
+                        <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                        
+                        <p style="font-size: 12px; color: #666; text-align: center;">
+                            This is an automated message from Lead Intelligence Engine.<br>
+                            Please do not reply to this email.
+                        </p>
+                    </div>
+                </body>
+            </html>
+            """
+            
+            msg.attach(MIMEText(body, 'html'))
+            
+            # Connect to server and send email
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.email_user, self.email_password)
+                server.send_message(msg)
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"Failed to send email: {str(e)}")
+            return False
+    
+    def send_welcome_email(self, recipient_email: str, username: str) -> bool:
+        """Send welcome email after successful verification."""
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = self.email_user
+            msg['To'] = recipient_email
+            msg['Subject'] = "Welcome to Lead Intelligence Engine!"
+            
+            body = f"""
+            <html>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+                        <h2 style="color: #2E86AB; text-align: center;">🎉 Welcome to Lead Intelligence Engine!</h2>
+                        
+                        <p>Hello <strong>{username}</strong>,</p>
+                        
+                        <p>Congratulations! Your email has been successfully verified and your account is now active.</p>
+                        
+                        <div style="background-color: #d4edda; padding: 15px; border-radius: 5px; border-left: 4px solid #28a745; margin: 20px 0;">
+                            <h4 style="margin: 0; color: #155724;">🚀 Ready to Get Started?</h4>
+                            <p style="margin: 5px 0 0 0; color: #155724;">
+                                You can now access all features of our AI-powered lead intelligence platform:
+                            </p>
+                            <ul style="color: #155724; margin: 10px 0 0 20px;">
+                                <li>Advanced web scraping capabilities</li>
+                                <li>AI-powered lead scoring and analysis</li>
+                                <li>Comprehensive company profiling</li>
+                                <li>Intelligent lead prioritization</li>
+                            </ul>
+                        </div>
+                        
+                        <p>Start analyzing your leads today and unlock valuable business insights!</p>
+                        
+                        <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                        
+                        <p style="font-size: 12px; color: #666; text-align: center;">
+                            Thank you for choosing Lead Intelligence Engine.<br>
+                            If you have any questions, feel free to reach out to our support team.
+                        </p>
+                    </div>
+                </body>
+            </html>
+            """
+            
+            msg.attach(MIMEText(body, 'html'))
+            
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.email_user, self.email_password)
+                server.send_message(msg)
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"Failed to send welcome email: {str(e)}")
+            return False
+
+
+# --- Enhanced Database Management Class ---
 class MongoManager:
     """Handles all interactions with the MongoDB Atlas database."""
     def __init__(self, uri: str):
@@ -37,8 +177,13 @@ class MongoManager:
             self.client.admin.command('ping')
             self.db = self.client["lead_intelligence_app"]
             self.users_collection = self.db["users"]
-            # Create a unique index on the username field to prevent duplicates
+            self.otp_collection = self.db["otp_verifications"]
+            
+            # Create indexes
             self.users_collection.create_index("username", unique=True)
+            self.users_collection.create_index("email", unique=True)
+            self.otp_collection.create_index("expires_at", expireAfterSeconds=0)  # TTL index
+            
         except pymongo.errors.ConnectionFailure as e:
             st.error(f"Database connection failed: {e}", icon="🚨")
             st.stop()
@@ -54,20 +199,110 @@ class MongoManager:
         """Verifies a password against a stored hash."""
         return bcrypt.checkpw(password.encode('utf-8'), hashed)
 
-    def add_user(self, username: str, password: str) -> bool:
-        """Adds a new user to the database. Returns True on success, False on failure (e.g., user exists)."""
+    def add_user(self, username: str, email: str, password: str) -> Dict:
+        """Adds a new user to the database. Returns status dict."""
+        # Check if username already exists
         if self.users_collection.find_one({"username": username}):
-            return False # User already exists
+            return {"success": False, "message": "Username already exists"}
+        
+        # Check if email already exists
+        if self.users_collection.find_one({"email": email}):
+            return {"success": False, "message": "Email already registered"}
+        
+        # Add user with email_verified=False
         hashed_password = self._hash_password(password)
-        self.users_collection.insert_one({
+        user_data = {
             "username": username,
+            "email": email,
             "password_hash": hashed_password,
-        })
-        return True
+            "email_verified": False,
+            "created_at": datetime.datetime.utcnow(),
+            "last_login": None
+        }
+        
+        self.users_collection.insert_one(user_data)
+        return {"success": True, "message": "User created successfully"}
 
     def find_user(self, username: str) -> Dict | None:
         """Finds a user by their username."""
         return self.users_collection.find_one({"username": username})
+    
+    def find_user_by_email(self, email: str) -> Dict | None:
+        """Finds a user by their email."""
+        return self.users_collection.find_one({"email": email})
+
+    def store_otp(self, email: str, otp: str) -> bool:
+        """Store OTP for email verification."""
+        try:
+            # Remove any existing OTP for this email
+            self.otp_collection.delete_many({"email": email})
+            
+            # Store new OTP with 10-minute expiration
+            otp_data = {
+                "email": email,
+                "otp": otp,
+                "created_at": datetime.datetime.utcnow(),
+                "expires_at": datetime.datetime.utcnow() + timedelta(minutes=10),
+                "attempts": 0
+            }
+            
+            self.otp_collection.insert_one(otp_data)
+            return True
+            
+        except Exception as e:
+            st.error(f"Failed to store OTP: {str(e)}")
+            return False
+
+    def verify_otp(self, email: str, otp: str) -> Dict:
+        """Verify OTP and return status."""
+        try:
+            otp_record = self.otp_collection.find_one({"email": email})
+            
+            if not otp_record:
+                return {"success": False, "message": "No OTP found for this email"}
+            
+            # Check if OTP has expired
+            if datetime.datetime.utcnow() > otp_record["expires_at"]:
+                self.otp_collection.delete_one({"email": email})
+                return {"success": False, "message": "OTP has expired. Please request a new one"}
+            
+            # Check attempts limit (max 3 attempts)
+            if otp_record["attempts"] >= 3:
+                self.otp_collection.delete_one({"email": email})
+                return {"success": False, "message": "Too many failed attempts. Please request a new OTP"}
+            
+            # Verify OTP
+            if otp_record["otp"] == otp:
+                # OTP is correct - verify user's email and clean up
+                self.users_collection.update_one(
+                    {"email": email},
+                    {"$set": {"email_verified": True}}
+                )
+                self.otp_collection.delete_one({"email": email})
+                return {"success": True, "message": "Email verified successfully"}
+            else:
+                # Increment attempts
+                self.otp_collection.update_one(
+                    {"email": email},
+                    {"$inc": {"attempts": 1}}
+                )
+                remaining_attempts = 3 - (otp_record["attempts"] + 1)
+                return {
+                    "success": False, 
+                    "message": f"Invalid OTP. {remaining_attempts} attempts remaining"
+                }
+                
+        except Exception as e:
+            st.error(f"Error verifying OTP: {str(e)}")
+            return {"success": False, "message": "Verification failed due to system error"}
+
+    def update_last_login(self, username: str):
+        """Update user's last login timestamp."""
+        self.users_collection.update_one(
+            {"username": username},
+            {"$set": {"last_login": datetime.datetime.utcnow()}}
+        )
+
 
 # --- AI & Scraper Class Definitions (Unchanged from your previous code) ---
 class LeadIntelligenceEngine:
@@ -78,7 +313,7 @@ class LeadIntelligenceEngine:
         except Exception as e:
             st.error(f"Failed to initialize Gemini model: {e}.")
             self.model = None
-    # ... (Keep all methods inside this class exactly as they were)
+
     def analyze_company_profile(self, company_data: Dict) -> Dict:
         """Generate comprehensive company analysis using Gemini AI"""
         if self.model is None:
@@ -138,7 +373,7 @@ class EnhancedWebScraper:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.88 Safari/537.36'
         })
-    # ... (Keep all methods inside this class exactly as they were)
+
     def scrape_company_data(self, url: str) -> Dict:
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
@@ -262,25 +497,31 @@ class EnhancedWebScraper:
             if any(re.search(r'\b' + term + r'\b', content, re.IGNORECASE) for term in terms): return stage
         return "Unknown"
 
-# --- Main Application Logic ---
 
-# Initialize session state for login status and results
+# --- Initialize Session State ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'username' not in st.session_state:
     st.session_state.username = ""
+if 'email' not in st.session_state:
+    st.session_state.email = ""
 if 'analysis_result' not in st.session_state:
     st.session_state.analysis_result = None
 if 'scraped_data' not in st.session_state:
     st.session_state.scraped_data = None
+if 'otp_stage' not in st.session_state:
+    st.session_state.otp_stage = False
+if 'temp_user_data' not in st.session_state:
+    st.session_state.temp_user_data = {}
 
 
-# --- Authentication UI (Login/Signup) ---
+# --- Authentication UI (Login/Signup with Email OTP) ---
 def authentication_ui():
     db_manager = MongoManager(MONGO_URI)
+    email_service = EmailService(SMTP_SERVER, SMTP_PORT, EMAIL_USER, EMAIL_PASSWORD)
     
     with st.sidebar:
-        st.header(f"Welcome!")
+        st.header("Welcome!")
         selected = option_menu(
             menu_title=None,
             options=["Login", "Sign Up"],
@@ -289,111 +530,503 @@ def authentication_ui():
         )
 
     if selected == "Login":
-        st.header("User Login")
+        st.header("🔐 User Login")
         with st.form("login_form"):
-            username = st.text_input("Username").lower()
-            password = st.text_input("Password", type="password")
-            login_button = st.form_submit_button("Login", type="primary")
+            username = st.text_input("Username", placeholder="Enter your username").lower()
+            password = st.text_input("Password", type="password", placeholder="Enter your password")
+            login_button = st.form_submit_button("Login", type="primary", use_container_width=True)
 
             if login_button:
                 if not username or not password:
-                    st.warning("Please enter both username and password.")
+                    st.warning("⚠️ Please enter both username and password.")
                 else:
                     user = db_manager.find_user(username)
                     if user and db_manager.check_password(password, user['password_hash']):
-                        st.session_state.logged_in = True
-                        st.session_state.username = username
-                        st.success("Logged in successfully!")
-                        st.rerun() # Rerun the script to show the main app
+                        if user.get('email_verified', False):
+                            st.session_state.logged_in = True
+                            st.session_state.username = username
+                            st.session_state.email = user.get('email', '')
+                            db_manager.update_last_login(username)
+                            st.success("✅ Logged in successfully!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Please verify your email address before logging in.")
+                            st.info("💡 Check your email for the verification OTP.")
                     else:
-                        st.error("Invalid username or password.")
+                        st.error("❌ Invalid username or password.")
 
     elif selected == "Sign Up":
-        st.header("Create New Account")
-        with st.form("signup_form"):
-            new_username = st.text_input("Choose a Username").lower()
-            new_password = st.text_input("Choose a Password", type="password")
-            signup_button = st.form_submit_button("Sign Up", type="primary")
+        if not st.session_state.otp_stage:
+            # Regular signup form
+            st.header("📝 Create New Account")
+            with st.form("signup_form"):
+                new_username = st.text_input("Username", placeholder="Choose a unique username").lower()
+                new_email = st.text_input("Email Address", placeholder="Enter your email address").lower()
+                new_password = st.text_input("Password", type="password", placeholder="Create a strong password")
+                confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
+                
+                st.markdown("---")
+                agree_terms = st.checkbox("I agree to the Terms of Service and Privacy Policy")
+                signup_button = st.form_submit_button("Create Account", type="primary", use_container_width=True)
 
-            if signup_button:
-                if not new_username or not new_password:
-                    st.warning("Please fill out all fields.")
-                elif len(new_password) < 6:
-                    st.warning("Password must be at least 6 characters long.")
-                else:
-                    if db_manager.add_user(new_username, new_password):
-                        st.success("Account created! You can now log in.")
+                if signup_button:
+                    if not all([new_username, new_email, new_password, confirm_password]):
+                        st.warning("⚠️ Please fill out all fields.")
+                    elif len(new_password) < 6:
+                        st.warning("⚠️ Password must be at least 6 characters long.")
+                    elif new_password != confirm_password:
+                        st.error("❌ Passwords do not match.")
+                    elif not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', new_email):
+                        st.error("❌ Please enter a valid email address.")
+                    elif not agree_terms:
+                        st.warning("⚠️ Please agree to the Terms of Service and Privacy Policy.")
                     else:
-                        st.error("Username already exists. Please choose another one.")
+                        # Try to create user
+                        result = db_manager.add_user(new_username, new_email, new_password)
+                        if result["success"]:
+                            # Generate and send OTP
+                            otp = email_service.generate_otp()
+                            if db_manager.store_otp(new_email, otp) and email_service.send_otp_email(new_email, otp, new_username):
+                                st.session_state.otp_stage = True
+                                st.session_state.temp_user_data = {
+                                    "username": new_username,
+                                    "email": new_email
+                                }
+                                st.success("✅ Account created! Please check your email for the verification code.")
+                                st.info("📧 We've sent a 6-digit OTP to your email address. Please enter it below to complete your registration.")
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to send verification email. Please try again.")
+                        else:
+                            st.error(f"❌ {result['message']}")
+        
+        else:
+            # OTP verification stage
+            st.header("📧 Email Verification")
+            st.info(f"We've sent a verification code to **{st.session_state.temp_user_data.get('email', '')}**")
+            
+            with st.form("otp_form"):
+                st.markdown("#### Enter Verification Code")
+                otp_input = st.text_input(
+                    "6-Digit OTP", 
+                    placeholder="Enter the 6-digit code from your email",
+                    max_chars=6,
+                    help="The OTP expires in 10 minutes"
+                )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    verify_button = st.form_submit_button("Verify Email", type="primary", use_container_width=True)
+                with col2:
+                    resend_button = st.form_submit_button("Resend Code", use_container_width=True)
+
+                if verify_button:
+                    if not otp_input:
+                        st.warning("⚠️ Please enter the OTP.")
+                    elif len(otp_input) != 6 or not otp_input.isdigit():
+                        st.error("❌ Please enter a valid 6-digit OTP.")
+                    else:
+                        result = db_manager.verify_otp(st.session_state.temp_user_data["email"], otp_input)
+                        if result["success"]:
+                            # Send welcome email
+                            email_service.send_welcome_email(
+                                st.session_state.temp_user_data["email"],
+                                st.session_state.temp_user_data["username"]
+                            )
+                            
+                            st.success("🎉 Email verified successfully! You can now log in.")
+                            st.balloons()
+                            
+                            # Reset states
+                            st.session_state.otp_stage = False
+                            st.session_state.temp_user_data = {}
+                            
+                            # Auto-login user
+                            st.session_state.logged_in = True
+                            st.session_state.username = st.session_state.temp_user_data.get("username", "")
+                            st.session_state.email = st.session_state.temp_user_data.get("email", "")
+                            
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {result['message']}")
+
+                if resend_button:
+                    # Generate new OTP and resend
+                    otp = email_service.generate_otp()
+                    if db_manager.store_otp(st.session_state.temp_user_data["email"], otp) and \
+                       email_service.send_otp_email(st.session_state.temp_user_data["email"], otp, st.session_state.temp_user_data["username"]):
+                        st.success("✅ New verification code sent to your email!")
+                    else:
+                        st.error("❌ Failed to resend verification code. Please try again.")
+
+            # Option to go back to signup
+            if st.button("← Back to Sign Up", help="Go back to modify your registration details"):
+                st.session_state.otp_stage = False
+                st.session_state.temp_user_data = {}
+                st.rerun()
 
 
 # --- Main Lead Intelligence App UI ---
 def main_app():
-    st.sidebar.success(f"Logged in as **{st.session_state.username}**")
-    if st.sidebar.button("Logout"):
-        st.session_state.logged_in = False
-        st.session_state.username = ""
-        st.rerun()
+    # Sidebar user info
+    st.sidebar.success(f"👋 Welcome, {st.session_state.username}!")
+    st.sidebar.info(f"📧 {st.session_state.email}")
+    
+    # User menu
+    with st.sidebar:
+        st.markdown("---")
+        user_menu = option_menu(
+            menu_title="Navigation",
+            options=["Lead Analysis", "Account Settings"],
+            icons=["robot", "gear"],
+            default_index=0,
+        )
+        
+        st.markdown("---")
+        if st.button("🚪 Logout", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.username = ""
+            st.session_state.email = ""
+            st.session_state.analysis_result = None
+            st.session_state.scraped_data = None
+            st.rerun()
 
-    st.title("🤖 AI-Powered Lead Intelligence Engine")
-    st.markdown("Enter a company website to scrape its data and generate an AI-powered lead score and analysis.")
+    if user_menu == "Lead Analysis":
+        # Main Lead Analysis Interface
+        st.title("🤖 AI-Powered Lead Intelligence Engine")
+        st.markdown("Enter a company website to scrape its data and generate an AI-powered lead score and analysis.")
 
-    with st.form("scrape_form"):
-        url_input = st.text_input("Enter Company Website URL:", placeholder="e.g., www.hubspot.com")
-        submitted = st.form_submit_button("Analyze Company", type="primary")
+        # Input form
+        with st.form("scrape_form"):
+            st.markdown("#### Company Analysis")
+            url_input = st.text_input(
+                "Company Website URL:", 
+                placeholder="e.g., www.hubspot.com, tesla.com, or https://example.com",
+                help="Enter the company's website URL (with or without https://)"
+            )
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                submitted = st.form_submit_button("🔍 Analyze Company", type="primary", use_container_width=True)
+            with col2:
+                clear_button = st.form_submit_button("🗑️ Clear Results", use_container_width=True)
 
-    if submitted and url_input:
-        scraper = EnhancedWebScraper()
-        analyzer = LeadIntelligenceEngine()
-        with st.spinner(f"Scraping {url_input}..."):
-            st.session_state.scraped_data = scraper.scrape_company_data(url_input)
-        if "error" in st.session_state.scraped_data:
-            st.error(st.session_state.scraped_data["error"])
-        else:
-            with st.spinner("🧠 Gemini is analyzing the company profile..."):
-                st.session_state.analysis_result = analyzer.analyze_company_profile(st.session_state.scraped_data)
-            if "error" in st.session_state.analysis_result:
-                st.error(st.session_state.analysis_result["error"])
+        if clear_button:
+            st.session_state.analysis_result = None
+            st.session_state.scraped_data = None
+            st.rerun()
+
+        if submitted and url_input:
+            scraper = EnhancedWebScraper()
+            analyzer = LeadIntelligenceEngine()
+            
+            with st.spinner(f"🔍 Scraping data from {url_input}..."):
+                st.session_state.scraped_data = scraper.scrape_company_data(url_input)
+            
+            if "error" in st.session_state.scraped_data:
+                st.error(f"❌ {st.session_state.scraped_data['error']}")
             else:
-                st.success("Analysis complete!")
+                with st.spinner("🧠 AI is analyzing the company profile..."):
+                    st.session_state.analysis_result = analyzer.analyze_company_profile(st.session_state.scraped_data)
+                
+                if "error" in st.session_state.analysis_result:
+                    st.error(f"❌ {st.session_state.analysis_result['error']}")
+                else:
+                    st.success("✅ Analysis complete!")
 
-    # Display results if they exist in the session state
-    if st.session_state.analysis_result and "error" not in st.session_state.analysis_result:
-        res = st.session_state.analysis_result
-        data = st.session_state.scraped_data
+        # Display results if they exist
+        if st.session_state.analysis_result and "error" not in st.session_state.analysis_result:
+            display_analysis_results()
+
+    elif user_menu == "Account Settings":
+        display_account_settings()
+
+
+def display_analysis_results():
+    """Display the lead analysis results in a formatted way."""
+    res = st.session_state.analysis_result
+    data = st.session_state.scraped_data
+    
+    st.markdown("---")
+    st.header(f"📊 Analysis Results: {data.get('name', 'Unknown Company')}")
+    
+    # Key metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        score = res.get('lead_score', 0)
+        score_color = "green" if score > 75 else "orange" if score > 50 else "red"
+        st.metric(
+            "Lead Score", 
+            f"{score}/100",
+            help="AI-generated lead quality score based on multiple factors"
+        )
+        st.markdown(f"<div style='text-align: center; color: {score_color}; font-weight: bold;'>{'🟢 Excellent' if score > 75 else '🟡 Good' if score > 50 else '🔴 Poor'}</div>", unsafe_allow_html=True)
+    
+    with col2:
+        priority = res.get('priority', 'N/A')
+        priority_color = "green" if priority == "High" else "orange" if priority == "Medium" else "red"
+        st.metric("Priority Level", priority)
+        st.markdown(f"<div style='text-align: center; color: {priority_color}; font-weight: bold;'>{'🚀 High Priority' if priority == 'High' else '⚡ Medium Priority' if priority == 'Medium' else '📋 Low Priority'}</div>", unsafe_allow_html=True)
+    
+    with col3:
+        risk = res.get('risk_level', 'N/A')
+        risk_color = "green" if risk == "Low" else "orange" if risk == "Medium" else "red"
+        st.metric("Risk Level", risk)
+        st.markdown(f"<div style='text-align: center; color: {risk_color}; font-weight: bold;'>{'✅ Low Risk' if risk == 'Low' else '⚠️ Medium Risk' if risk == 'Medium' else '❌ High Risk'}</div>", unsafe_allow_html=True)
+    
+    with col4:
+        industry = data.get('industry', 'Unknown')
+        st.metric("Industry", industry)
+        st.markdown(f"<div style='text-align: center; color: #666; font-weight: bold;'>🏢 {industry}</div>", unsafe_allow_html=True)
+
+    # AI Analysis Section
+    st.subheader("🤖 AI-Generated Analysis")
+    
+    # Recommended Approach
+    st.markdown("##### 🎯 **Recommended Approach**")
+    approach = res.get('recommended_approach', 'Not available.')
+    st.info(f"💡 {approach}")
+    
+    # Rationale
+    st.markdown("##### 📝 **Analysis Rationale**")
+    rationale = res.get('rationale', 'Not available.')
+    st.write(rationale)
+    
+    # Score Breakdown
+    st.markdown("##### 📈 **Score Breakdown**")
+    breakdown = res.get('score_breakdown', {})
+    
+    if breakdown:
+        # Create two columns for the breakdown
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            for i, (criteria, score_desc) in enumerate(breakdown.items()):
+                if i % 2 == 0:  # Even index items in left column
+                    st.markdown(f"**{criteria}:** {score_desc}")
+        
+        with col2:
+            for i, (criteria, score_desc) in enumerate(breakdown.items()):
+                if i % 2 == 1:  # Odd index items in right column
+                    st.markdown(f"**{criteria}:** {score_desc}")
+        
+        # Create visualization
+        parsed_scores = {}
+        for k, v in breakdown.items():
+            match = re.match(r'(\d+)', v)
+            if match:
+                parsed_scores[k] = int(match.group(1))
+        
+        if parsed_scores:
+            df = pd.DataFrame(list(parsed_scores.items()), columns=['Criteria', 'Score'])
+            fig = px.bar(
+                df, 
+                x='Score', 
+                y='Criteria', 
+                orientation='h', 
+                title="Lead Score by Criteria",
+                text_auto=True,
+                color='Score',
+                color_continuous_scale='RdYlGn'
+            )
+            fig.update_layout(
+                xaxis_title="Score", 
+                yaxis_title="",
+                showlegend=False,
+                height=400
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Company Data Section
+    st.markdown("---")
+    st.header("🏢 Company Profile Data")
+    
+    # General Information
+    with st.expander("🌐 General & Contact Information", expanded=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown(f"**Company Name:** `{data.get('name', 'N/A')}`")
+            st.markdown(f"**Website:** `{data.get('website', 'N/A')}`")
+            st.markdown(f"**Industry:** `{data.get('industry', 'N/A')}`")
+            st.markdown(f"**Team Size:** `{data.get('team_size', 'N/A')}`")
+            st.markdown(f"**Funding Stage:** `{data.get('funding_stage', 'N/A')}`")
+        
+        with col2:
+            emails = data.get('contact_emails', [])
+            phones = data.get('phone_numbers', [])
+            
+            st.markdown(f"**Contact Emails:** `{', '.join(emails) if emails else 'Not Found'}`")
+            st.markdown(f"**Phone Numbers:** `{', '.join(phones) if phones else 'Not Found'}`")
+            
+            # Social Media Links
+            social_media = data.get('social_media', {})
+            if social_media:
+                st.markdown("**Social Media:**")
+                for platform, url in social_media.items():
+                    st.markdown(f"- [{platform}]({url})")
+            else:
+                st.markdown("**Social Media:** `Not Found`")
+        
+        st.markdown("**Description:**")
+        st.write(data.get('description', 'No description available.'))
+
+    # Technology Stack
+    with st.expander("💻 Technology Stack", expanded=False):
+        technologies = data.get('technologies', [])
+        if technologies:
+            # Create a nice grid of technology badges
+            tech_html = ""
+            for tech in technologies:
+                tech_html += f'<span style="display: inline-block; background-color: #e3f2fd; color: #1976d2; padding: 4px 8px; margin: 2px; border-radius: 4px; font-size: 12px;">{tech}</span>'
+            st.markdown(tech_html, unsafe_allow_html=True)
+        else:
+            st.info("No specific technologies detected on the website.")
+
+    # Export Options
+    st.markdown("---")
+    st.subheader("📤 Export Options")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("📋 Copy Lead Summary", use_container_width=True):
+            summary = f"""
+Lead Analysis Summary
+Company: {data.get('name', 'N/A')}
+Website: {data.get('website', 'N/A')}
+Lead Score: {res.get('lead_score', 0)}/100
+Priority: {res.get('priority', 'N/A')}
+Risk Level: {res.get('risk_level', 'N/A')}
+Recommended Approach: {res.get('recommended_approach', 'N/A')}
+            """.strip()
+            st.code(summary)
+    
+    with col2:
+        # Create downloadable JSON
+        export_data = {
+            "company_data": data,
+            "analysis_result": res,
+            "analysis_date": datetime.datetime.now().isoformat(),
+            "analyzed_by": st.session_state.username
+        }
+        
+        json_data = json.dumps(export_data, indent=2)
+        st.download_button(
+            label="📄 Download JSON Report",
+            data=json_data,
+            file_name=f"lead_analysis_{data.get('name', 'company').replace(' ', '_').lower()}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json",
+            use_container_width=True
+        )
+    
+    with col3:
+        # Create CSV export
+        csv_data = pd.DataFrame([{
+            'Company Name': data.get('name', 'N/A'),
+            'Website': data.get('website', 'N/A'),
+            'Industry': data.get('industry', 'N/A'),
+            'Lead Score': res.get('lead_score', 0),
+            'Priority': res.get('priority', 'N/A'),
+            'Risk Level': res.get('risk_level', 'N/A'),
+            'Team Size': data.get('team_size', 'N/A'),
+            'Funding Stage': data.get('funding_stage', 'N/A'),
+            'Contact Emails': ', '.join(data.get('contact_emails', [])),
+            'Phone Numbers': ', '.join(data.get('phone_numbers', [])),
+            'Technologies': ', '.join(data.get('technologies', [])),
+            'Recommended Approach': res.get('recommended_approach', 'N/A'),
+            'Analysis Date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'Analyzed By': st.session_state.username
+        }])
+        
+        csv_string = csv_data.to_csv(index=False)
+        st.download_button(
+            label="📊 Download CSV Report",
+            data=csv_string,
+            file_name=f"lead_analysis_{data.get('name', 'company').replace(' ', '_').lower()}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+
+def display_account_settings():
+    """Display account settings and user profile information."""
+    st.header("⚙️ Account Settings")
+    
+    db_manager = MongoManager(MONGO_URI)
+    user = db_manager.find_user(st.session_state.username)
+    
+    if user:
+        # User Profile Section
+        st.subheader("👤 Profile Information")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.info(f"**Username:** {user.get('username', 'N/A')}")
+            st.info(f"**Email:** {user.get('email', 'N/A')}")
+            st.info(f"**Email Verified:** {'✅ Yes' if user.get('email_verified', False) else '❌ No'}")
+        
+        with col2:
+            created_at = user.get('created_at')
+            last_login = user.get('last_login')
+            
+            if created_at:
+                st.info(f"**Member Since:** {created_at.strftime('%B %d, %Y')}")
+            
+            if last_login:
+                st.info(f"**Last Login:** {last_login.strftime('%B %d, %Y at %I:%M %p')}")
+        
         st.markdown("---")
-        st.header(f"Analysis for: {data.get('name', 'Unknown Company')}")
+        
+        # Account Actions
+        st.subheader("🔧 Account Actions")
+        
         col1, col2, col3 = st.columns(3)
-        col1.metric("Lead Score", f"{res.get('lead_score', 0)}/100")
-        col2.metric("Priority", res.get('priority', 'N/A'))
-        col3.metric("Risk Level", res.get('risk_level', 'N/A'))
-        # ... (rest of the display logic is the same)
-        st.subheader("AI-Generated Analysis")
-        st.markdown("##### **Recommended Approach**")
-        st.info(res.get('recommended_approach', 'Not available.'))
-        st.markdown("##### **Rationale**")
-        st.write(res.get('rationale', 'Not available.'))
-        st.markdown("##### **Score Breakdown**")
-        breakdown = res.get('score_breakdown', {})
-        if breakdown:
-            parsed_scores = {k: int(re.match(r'(\d+)', v).group(1)) for k, v in breakdown.items() if re.match(r'(\d+)', v)}
-            if parsed_scores:
-                df = pd.DataFrame(list(parsed_scores.items()), columns=['Criteria', 'Score'])
-                fig = px.bar(df, x='Score', y='Criteria', orientation='h', title="Lead Score by Criteria", text_auto=True)
-                fig.update_layout(xaxis_title="Score", yaxis_title="")
-                st.plotly_chart(fig, use_container_width=True)
+        
+        with col1:
+            if st.button("🔄 Change Password", use_container_width=True):
+                st.info("Password change functionality would be implemented here with proper security measures.")
+        
+        with col2:
+            if st.button("📧 Update Email", use_container_width=True):
+                st.info("Email update functionality would be implemented here with re-verification.")
+        
+        with col3:
+            if st.button("❌ Delete Account", use_container_width=True, type="secondary"):
+                st.warning("Account deletion would be implemented here with proper confirmation steps.")
+        
         st.markdown("---")
-        st.header("Scraped Company Data")
-        with st.expander("🌐 General & Contact Information", expanded=True):
-            st.markdown(f"**Company Name:** `{data.get('name')}`")
-            st.markdown(f"**Website:** `{data.get('website')}`")
-            st.markdown(f"**Industry:** `{data.get('industry')}`")
-            st.markdown(f"**Emails:** `{', '.join(data.get('contact_emails')) if data.get('contact_emails') else 'Not Found'}`")
-            st.markdown(f"**Phone Numbers:** `{', '.join(data.get('phone_numbers')) if data.get('phone_numbers') else 'Not Found'}`")
-            st.markdown(f"**Description:** {data.get('description')}")
+        
+        # Usage Statistics (placeholder)
+        st.subheader("📊 Usage Statistics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Companies Analyzed", "0", help="Total number of companies analyzed")
+        
+        with col2:
+            st.metric("High-Priority Leads", "0", help="Number of high-priority leads identified")
+        
+        with col3:
+            st.metric("Average Lead Score", "0", help="Average lead score across all analyses")
+        
+        with col4:
+            st.metric("Last Analysis", "Never", help="Date of last company analysis")
+        
+        st.info("💡 Usage statistics will be tracked and displayed here in future updates.")
+
 
 # --- App Router ---
-if not st.session_state.logged_in:
-    authentication_ui()
-else:
-    main_app()
+def main():
+    """Main application router."""
+    if not st.session_state.logged_in:
+        authentication_ui()
+    else:
+        main_app()
+
+
+if __name__ == "__main__":
+    main()
