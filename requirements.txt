@@ -12,4 +12,3 @@ python-dotenv
 altair
 fsspec
 tqdm
-sentencepiece==0.1.99
