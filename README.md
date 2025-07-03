@@ -39,7 +39,8 @@ This data is then analyzed by a **Gemini-powered AI model**, which returns:
 
 | Login Page | Lead Analysis |
 |------------|----------------|
-| ![Login](https://github.com/user-attachments/assets/d0307e26-dda9-4fe2-a15a-52724f401bd2)| ![Analysis](https://github.com/user-attachments/assets/39d7d582-4ae0-426c-9974-90c22b8fb081)
+| ![Login](https://github.com/user-attachments/assets/d0307e26-dda9-4fe2-a15a-52724f401bd2)| ![Analysis](https://github.com/user-attachments/assets/582753a9-4fb9-4646-8768-000480b11f9a)
+
 
 ---
 
