@@ -168,7 +168,7 @@ class MongoManager:
             "email": email,
             "password_hash": hashed_password,
             "email_verified": False,
-            "created_at": datetime.datetime.utcnow(),
+            "created_at": datetime.datetime.now(datetime.UTC),
             "last_login": None
         }
         self.users_collection.insert_one(user_data)
@@ -186,8 +186,8 @@ class MongoManager:
             otp_data = {
                 "email": email,
                 "otp": otp,
-                "created_at": datetime.datetime.utcnow(),
-                "expires_at": datetime.datetime.utcnow() + timedelta(minutes=10),
+                "created_at": datetime.datetime.now(datetime.UTC),
+                "expires_at": datetime.datetime.now(datetime.UTC) + timedelta(minutes=10),
                 "attempts": 0
             }
             self.otp_collection.insert_one(otp_data)
@@ -201,7 +201,7 @@ class MongoManager:
             otp_record = self.otp_collection.find_one({"email": email})
             if not otp_record:
                 return {"success": False, "message": "No OTP found for this email"}
-            if datetime.datetime.utcnow() > otp_record["expires_at"]:
+            if datetime.datetime.now(datetime.UTC) > otp_record["expires_at"]:
                 self.otp_collection.delete_one({"email": email})
                 return {"success": False, "messageAs": "OTP has expired. Please request a new one"}
             if otp_record["attempts"] >= 3:
@@ -231,7 +231,7 @@ class MongoManager:
     def update_last_login(self, username: str):
         self.users_collection.update_one(
             {"username": username},
-            {"$set": {"last_login": datetime.datetime.utcnow()}}
+            {"$set": {"last_login": datetime.datetime.now(datetime.UTC)}}
         )
 
     def store_analysis(self, username: str, company_data: Dict, analysis_result: Dict, additional_insights: Dict = None):
@@ -241,7 +241,7 @@ class MongoManager:
                 "company_data": company_data,
                 "analysis_result": analysis_result,
                 "additional_insights": additional_insights or {},
-                "timestamp": datetime.datetime.utcnow()
+                "timestamp": datetime.datetime.now(datetime.UTC)
             }
             self.analyses_collection.insert_one(analysis_data)
             return {"success": True, "message": "Analysis stored successfully"}
