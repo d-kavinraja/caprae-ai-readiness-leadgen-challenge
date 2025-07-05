@@ -109,7 +109,7 @@ class EmailService:
 class LeadIntelligenceEngine:
     def __init__(self):
         try:
-            self.model = genai.GenerativeModel('gemini-pro')
+            self.model = genai.GenerativeModel('gemini-2.0-flash')
         except Exception as e:
             st.error(f"Failed to initialize Gemini model: {e}.")
             self.model = None
