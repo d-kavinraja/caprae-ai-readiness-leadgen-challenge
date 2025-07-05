@@ -197,17 +197,27 @@ class MongoManager:
             return False
 
     def verify_otp(self, email: str, otp: str) -> Dict:
+        """Verify OTP and return status."""
         try:
             otp_record = self.otp_collection.find_one({"email": email})
+            
             if not otp_record:
                 return {"success": False, "message": "No OTP found for this email"}
-            if datetime.datetime.now(datetime.UTC) > otp_record["expires_at"]:
+            
+            # Check if OTP has expired
+            # FIX: Make the naive datetime from Mongo timezone-aware (UTC) before comparison.
+            if datetime.datetime.now(datetime.UTC) > otp_record["expires_at"].replace(tzinfo=datetime.UTC):
                 self.otp_collection.delete_one({"email": email})
-                return {"success": False, "messageAs": "OTP has expired. Please request a new one"}
+                return {"success": False, "message": "OTP has expired. Please request a new one"}
+            
+            # Check attempts limit (max 3 attempts)
             if otp_record["attempts"] >= 3:
                 self.otp_collection.delete_one({"email": email})
                 return {"success": False, "message": "Too many failed attempts. Please request a new OTP"}
+            
+            # Verify OTP
             if otp_record["otp"] == otp:
+                # OTP is correct - verify user's email and clean up
                 self.users_collection.update_one(
                     {"email": email},
                     {"$set": {"email_verified": True}}
@@ -215,15 +225,17 @@ class MongoManager:
                 self.otp_collection.delete_one({"email": email})
                 return {"success": True, "message": "Email verified successfully"}
             else:
+                # Increment attempts
                 self.otp_collection.update_one(
                     {"email": email},
                     {"$inc": {"attempts": 1}}
                 )
                 remaining_attempts = 3 - (otp_record["attempts"] + 1)
                 return {
-                    "success": False, 
+                    "success": False,
                     "message": f"Invalid OTP. {remaining_attempts} attempts remaining"
                 }
+        
         except Exception as e:
             st.error(f"Error verifying OTP: {str(e)}")
             return {"success": False, "message": "Verification failed due to system error"}
@@ -593,17 +605,23 @@ def authentication_ui():
                     else:
                         result = db_manager.verify_otp(st.session_state.temp_user_data["email"], otp_input)
                         if result["success"]:
-                            email_service.send_welcome_email(
-                                st.session_state.temp_user_data["email"],
-                                st.session_state.temp_user_data["username"]
-                            )
+                            # FIX: Correctly set session state after verification before rerun.
+                            verified_username = st.session_state.temp_user_data["username"]
+                            verified_email = st.session_state.temp_user_data["email"]
+
+                            email_service.send_welcome_email(verified_email, verified_username)
+                            
                             st.success("🎉 Email verified successfully! You can now log in.")
                             st.balloons()
+                            
+                            st.session_state.logged_in = True
+                            st.session_state.username = verified_username
+                            st.session_state.email = verified_email
+                            
+                            # Clear temporary state
                             st.session_state.otp_stage = False
                             st.session_state.temp_user_data = {}
-                            st.session_state.logged_in = True
-                            st.session_state.username = st.session_state.temp_user_data.get("username", "")
-                            st.session_state.email = st.session_state.temp_user_data.get("email", "")
+                            
                             st.rerun()
                         else:
                             st.error(f"❌ {result['message']}")
